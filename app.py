@@ -76,7 +76,7 @@ if not st.session_state.logged_in:
                 df = pd.read_csv("users.csv")
                 st.session_state.role = df[df.username==user].role.values[0]
                 st.success("Logged in successfully!")
-                st.experimental_rerun()
+                st.rerun()
             else:
                 st.error("Invalid credentials")
 
