@@ -9,46 +9,89 @@ from datetime import datetime
 import requests
 import pandas as pd
 
-# ================== PAGE CONFIG ==================
+# ================= PAGE CONFIG =================
 st.set_page_config(
     page_title="FishVision Pro",
     page_icon="🐟",
     layout="wide"
 )
 
-# ================== PREMIUM CSS ==================
+# ================= PREMIUM UI =================
 st.markdown("""
 <style>
+
+/* Animated Gradient */
 .stApp {
-    background: linear-gradient(135deg,#0f2027,#203a43,#2c5364);
+    background: linear-gradient(-45deg, #0f2027, #203a43, #2c5364, #1c1c1c);
+    background-size: 400% 400%;
+    animation: gradientBG 15s ease infinite;
     color: white;
 }
-.glass {
-    background: rgba(255,255,255,0.07);
-    padding: 25px;
-    border-radius: 20px;
-    backdrop-filter: blur(15px);
-    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+@keyframes gradientBG {
+    0% {background-position: 0% 50%;}
+    50% {background-position: 100% 50%;}
+    100% {background-position: 0% 50%;}
 }
-.metric-card {
-    background: rgba(255,255,255,0.1);
+
+/* Glass Card */
+.glass {
+    background: rgba(255,255,255,0.08);
+    padding: 30px;
+    border-radius: 20px;
+    backdrop-filter: blur(20px);
+    box-shadow: 0 0 40px rgba(0,255,255,0.15);
+    transition: 0.3s;
+}
+.glass:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 0 60px rgba(0,255,255,0.35);
+}
+
+/* Buttons */
+.stButton>button {
+    background: linear-gradient(90deg,#00c6ff,#0072ff);
+    border-radius: 30px;
+    border: none;
+    color: white;
+    font-weight: bold;
+    padding: 0.6rem 1.5rem;
+}
+.stButton>button:hover {
+    box-shadow: 0 0 20px #00c6ff;
+    transform: scale(1.05);
+}
+
+/* Sidebar */
+section[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #141E30, #243B55);
+}
+
+/* Metric Glow */
+[data-testid="stMetric"] {
+    background: rgba(255,255,255,0.05);
     padding: 15px;
     border-radius: 15px;
+    box-shadow: 0 0 20px rgba(0,255,255,0.15);
 }
-footer {visibility:hidden;}
+
+/* Watermark */
 .watermark {
     position: fixed;
     bottom: 10px;
     right: 20px;
-    opacity: 0.12;
-    font-size: 40px;
-    font-weight: bold;
+    opacity: 0.08;
+    font-size: 60px;
+    font-weight: 800;
 }
+
+footer {visibility:hidden;}
+
 </style>
+
 <div class="watermark">FishVision AI</div>
 """, unsafe_allow_html=True)
 
-# ================== MODEL ==================
+# ================= MODEL =================
 MODEL_URL = "https://huggingface.co/spaces/riad2021/fish-classifier/resolve/main/fish_classifier_final.keras"
 MODEL_PATH = "fish_classifier_final.keras"
 
@@ -62,7 +105,7 @@ def load_model():
 
 model = load_model()
 
-# ================== ORIGINAL CLASS LIST ==================
+# ===== ORIGINAL 21 CLASS =====
 class_names = [
     "Baim","Bata","Batasio (Tenra)","Chitul","Croaker (Poya)",
     "Hilsha","Kajoli","Meni","Pabda","Poli",
@@ -70,7 +113,7 @@ class_names = [
     "Telapiya","Carp","Kaikka","Koi","Koral","Shrimp"
 ]
 
-# ================== DATABASE ==================
+# ================= DATABASE =================
 conn = sqlite3.connect("database.db", check_same_thread=False)
 c = conn.cursor()
 
@@ -83,7 +126,6 @@ c.execute("""CREATE TABLE IF NOT EXISTS history
               fish TEXT,
               confidence REAL,
               time TEXT)""")
-
 conn.commit()
 
 def hash_password(p):
@@ -108,21 +150,22 @@ def save_history(u,f,cfg):
               (u,f,cfg,datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
     conn.commit()
 
-# default admin
+# Default Admin
 c.execute("SELECT * FROM users WHERE username='admin'")
 if not c.fetchone():
     add_user("admin","admin123","admin")
 
-# ================== SESSION ==================
+# ================= SESSION =================
 if "user" not in st.session_state:
     st.session_state.user=None
 if "role" not in st.session_state:
     st.session_state.role=None
 
-# ================== LOGIN / SIGNUP ==================
+# ================= LOGIN =================
 if not st.session_state.user:
 
-    st.markdown("<h1 style='text-align:center;'>🐟 FishVision Pro</h1>", unsafe_allow_html=True)
+    st.markdown("<div class='glass'><h1 style='text-align:center;'>🐟 FishVision Pro</h1><p style='text-align:center;'>AI Powered Fish Classification SaaS</p></div>", unsafe_allow_html=True)
+
     tab1, tab2 = st.tabs(["🔐 Login","📝 Signup"])
 
     with tab1:
@@ -149,9 +192,10 @@ if not st.session_state.user:
 
     st.stop()
 
-# ================== SIDEBAR ==================
+# ================= SIDEBAR =================
 st.sidebar.markdown("## 🐟 FishVision AI")
 st.sidebar.write(f"👤 {st.session_state.user}")
+
 if st.sidebar.button("Logout"):
     st.session_state.clear()
     st.rerun()
@@ -159,7 +203,7 @@ if st.sidebar.button("Logout"):
 page = st.sidebar.radio("Navigation",
                         ["🏠 Predict","📊 History","📈 Analytics","ℹ Model Info"])
 
-# ================== PREDICT ==================
+# ================= PREDICT =================
 if page=="🏠 Predict":
 
     st.title("AI Fish Species Detection")
@@ -184,11 +228,15 @@ if page=="🏠 Predict":
         if confidence < 60:
             st.warning("Low confidence. Try clearer image.")
         else:
-            st.markdown(f"<div class='glass'><h2>{fish}</h2></div>", unsafe_allow_html=True)
-            st.metric("Confidence", f"{confidence:.2f}%")
+            st.markdown(f"""
+            <div class='glass'>
+                <h1 style='text-align:center;font-size:40px;'>{fish}</h1>
+                <p style='text-align:center;font-size:22px;'>Confidence: {confidence:.2f}%</p>
+            </div>
+            """, unsafe_allow_html=True)
             save_history(st.session_state.user,fish,confidence)
 
-# ================== HISTORY ==================
+# ================= HISTORY =================
 if page=="📊 History":
 
     st.title("📊 Personal Dashboard")
@@ -215,7 +263,7 @@ if page=="📊 History":
     else:
         st.info("No predictions yet.")
 
-# ================== ADMIN ANALYTICS ==================
+# ================= ADMIN ANALYTICS =================
 if page=="📈 Analytics":
 
     if st.session_state.role!="admin":
@@ -223,22 +271,17 @@ if page=="📈 Analytics":
     else:
         st.title("📈 Platform Analytics")
 
-        c.execute("SELECT fish,confidence FROM history")
+        c.execute("SELECT fish FROM history")
         data=c.fetchall()
 
         if data:
-            df=pd.DataFrame(data,columns=["Fish","Confidence"])
-
-            st.subheader("Fish Distribution")
-            st.bar_chart(df["Fish"].value_counts())
-
-            st.subheader("Top 5 Most Detected")
-            st.write(df["Fish"].value_counts().head())
-
+            fish=[d[0] for d in data]
+            chart_data={f:fish.count(f) for f in set(fish)}
+            st.bar_chart(chart_data)
         else:
             st.info("No Data Available")
 
-# ================== MODEL INFO ==================
+# ================= MODEL INFO =================
 if page=="ℹ Model Info":
 
     st.title("Model Overview")
@@ -246,6 +289,6 @@ if page=="ℹ Model Info":
     st.write("Total Classes: 21")
     st.write("Image Size: 224x224")
     st.write("Confidence Threshold: 60%")
-    st.write("Deployment Ready: Streamlit Cloud / HuggingFace")
+    st.write("Deployment: Streamlit Cloud / HuggingFace")
 
-st.markdown("<hr><center style='color:white;'>© 2026 FishVision AI | SaaS Edition</center>", unsafe_allow_html=True)
+st.markdown("<hr><center style='color:white;'>© 2026 FishVision AI | Premium SaaS Edition</center>", unsafe_allow_html=True)
