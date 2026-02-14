@@ -1,29 +1,21 @@
 import streamlit as st
 import tensorflow as tf
 import numpy as np
-import pandas as pd
+import sqlite3
 import os
 import hashlib
 from PIL import Image
 from datetime import datetime
+import requests
 
-st.set_page_config(page_title="🐟Fish Species Classifier Pro", page_icon="🐟", layout="wide")
+# ===============================
+# CONFIG
+# ===============================
+st.set_page_config(page_title="🐟 Fish Classifier Pro", layout="wide")
 
-# ===== Model Loading =====
 MODEL_URL = "https://huggingface.co/spaces/riad2021/fish-classifier/resolve/main/fish_classifier_final.keras"
 MODEL_PATH = "fish_classifier_final.keras"
-
-@st.cache_resource
-def load_model_from_url():
-    if not os.path.exists(MODEL_PATH):
-        with st.spinner("Downloading model..."):
-            import requests
-            r = requests.get(MODEL_URL)
-            with open(MODEL_PATH, "wb") as f:
-                f.write(r.content)
-    return tf.keras.models.load_model(MODEL_PATH)
-
-model = load_model_from_url()
+DB_PATH = "database.db"
 
 class_names = [
     "Baim","Bata","Batasio(tenra)","Chitul","Croaker(Poya)",
@@ -32,155 +24,198 @@ class_names = [
     "Telapiya","carp","kaikka","koi","koral","shrimp"
 ]
 
-# ===== Auth + DB =====
+# ===============================
+# DATABASE SETUP (SQLite)
+# ===============================
+conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+c = conn.cursor()
 
-if not os.path.exists("users.csv"):
-    pd.DataFrame(columns=["username","password","role"]).to_csv("users.csv", index=False)
+c.execute("""
+CREATE TABLE IF NOT EXISTS users (
+    username TEXT PRIMARY KEY,
+    password TEXT,
+    role TEXT
+)
+""")
 
-if not os.path.exists("history.csv"):
-    pd.DataFrame(columns=["username","fish","confidence","time"]).to_csv("history.csv", index=False)
+c.execute("""
+CREATE TABLE IF NOT EXISTS history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT,
+    fish TEXT,
+    confidence REAL,
+    time TEXT
+)
+""")
+conn.commit()
 
+# ===============================
+# SECURITY
+# ===============================
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
 def add_user(username, password, role="user"):
-    df = pd.read_csv("users.csv")
-    df.loc[len(df)] = [username, hash_password(password), role]
-    df.to_csv("users.csv", index=False)
+    try:
+        c.execute("INSERT INTO users VALUES (?, ?, ?)",
+                  (username, hash_password(password), role))
+        conn.commit()
+        return True
+    except:
+        return False
 
 def verify_user(username, password):
-    df = pd.read_csv("users.csv")
-    h = hash_password(password)
-    user = df[(df.username == username) & (df.password == h)]
-    return False if user.empty else True
+    c.execute("SELECT * FROM users WHERE username=? AND password=?",
+              (username, hash_password(password)))
+    return c.fetchone()
 
-# Manage session
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
+def save_history(username, fish, confidence):
+    c.execute("INSERT INTO history (username, fish, confidence, time) VALUES (?, ?, ?, ?)",
+              (username, fish, confidence,
+               datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+    conn.commit()
+
+# Create default admin if not exists
+c.execute("SELECT * FROM users WHERE username='admin'")
+if not c.fetchone():
+    add_user("admin", "admin123", "admin")
+
+# ===============================
+# LOAD MODEL
+# ===============================
+@st.cache_resource
+def load_model():
+    if not os.path.exists(MODEL_PATH):
+        with st.spinner("Downloading model..."):
+            r = requests.get(MODEL_URL)
+            with open(MODEL_PATH, "wb") as f:
+                f.write(r.content)
+    return tf.keras.models.load_model(MODEL_PATH)
+
+model = load_model()
+
+# ===============================
+# SESSION
+# ===============================
+if "user" not in st.session_state:
+    st.session_state.user = None
 if "role" not in st.session_state:
     st.session_state.role = None
 
-# ===== Authentication =====
+# ===============================
+# LOGIN / SIGNUP
+# ===============================
+if not st.session_state.user:
 
-if not st.session_state.logged_in:
-    st.title("🔐 Login or Signup")
-    tab = st.tabs(["Login","Signup"])
+    st.title("🔐 Fish Classifier Pro Login")
 
-    with tab[0]:
-        user = st.text_input("Username", key="login_user")
-        pwd = st.text_input("Password", type="password", key="login_pwd")
+    tab1, tab2 = st.tabs(["Login", "Signup"])
+
+    with tab1:
+        u = st.text_input("Username")
+        p = st.text_input("Password", type="password")
         if st.button("Login"):
-            if verify_user(user, pwd):
-                st.session_state.logged_in = True
-                st.session_state.user = user
-                df = pd.read_csv("users.csv")
-                st.session_state.role = df[df.username==user].role.values[0]
-                st.success("Logged in successfully!")
+            user = verify_user(u, p)
+            if user:
+                st.session_state.user = u
+                st.session_state.role = user[2]
+                st.success("Login successful!")
                 st.rerun()
             else:
                 st.error("Invalid credentials")
 
-    with tab[1]:
-        new_user = st.text_input("New Username", key="signup_user")
-        new_pwd = st.text_input("New Password", type="password", key="signup_pwd")
-        if st.button("Signup"):
-            add_user(new_user, new_pwd)
-            st.success("Account created! Now log in")
+    with tab2:
+        new_u = st.text_input("New Username")
+        new_p = st.text_input("New Password", type="password")
+        if st.button("Create Account"):
+            if add_user(new_u, new_p):
+                st.success("Account created! Login now.")
+            else:
+                st.warning("Username already exists.")
 
     st.stop()
 
-# ===== Main App UI =====
-
-st.sidebar.write(f"👤 Logged in as: **{st.session_state.user}**")
+# ===============================
+# SIDEBAR
+# ===============================
+st.sidebar.write(f"👤 Logged in as: {st.session_state.user}")
 if st.sidebar.button("Logout"):
-    st.session_state.logged_in = False
-    st.session_state.role = None
+    st.session_state.clear()
     st.rerun()
 
-page = st.sidebar.selectbox("Navigate", ["Predict","History","Analytics","Download Report","Model Info"])
+page = st.sidebar.selectbox("Navigate", 
+                            ["Predict", "History", "Analytics", "Model Info"])
 
-# Save history
-def save_history(username, fish, confidence):
-    df = pd.read_csv("history.csv")
-    df.loc[len(df)] = [username, fish, confidence, datetime.now().strftime("%Y-%m-%d %H:%M:%S")]
-    df.to_csv("history.csv", index=False)
-
-# ===== PREDICT =====
-
+# ===============================
+# PREDICT PAGE
+# ===============================
 if page == "Predict":
-    st.title("🐟 Upload Fish Image")
-    uploaded = st.file_uploader("", type=["jpg","jpeg","png"])
+
+    st.title("🐟 Fish Species Prediction")
+
+    uploaded = st.file_uploader("Upload Fish Image", type=["jpg","jpeg","png"])
+
     if uploaded:
         img = Image.open(uploaded).convert("RGB")
-        st.image(img, caption="Uploaded Image", use_column_width=True)
+        st.image(img, use_column_width=True)
 
         img = img.resize((224,224))
         arr = np.expand_dims(np.array(img), 0)
         arr = tf.keras.applications.efficientnet_v2.preprocess_input(arr)
 
         pred = model.predict(arr)
-        idx = np.argmax(pred, axis=1)[0]
+        idx = np.argmax(pred)
         confidence = float(pred[0][idx]*100)
 
         if confidence < 60:
-            st.warning("⚠ Low confidence — please upload a clearer image")
+            st.warning("⚠ Low confidence prediction. Try clearer image.")
         else:
             fish = class_names[idx]
-            st.success(f"Prediction: **{fish}**")
-            st.write(f"Confidence: **{confidence:.2f}%**")
+            st.success(f"Prediction: {fish}")
+            st.info(f"Confidence: {confidence:.2f}%")
             save_history(st.session_state.user, fish, confidence)
 
-# ===== HISTORY =====
-
+# ===============================
+# HISTORY PAGE
+# ===============================
 if page == "History":
     st.title("📊 Your Prediction History")
-    h = pd.read_csv("history.csv")
-    user_hist = h[h.username == st.session_state.user]
-    st.dataframe(user_hist)
 
-# ===== ANALYTICS (Admin Only) =====
+    c.execute("SELECT fish, confidence, time FROM history WHERE username=?",
+              (st.session_state.user,))
+    rows = c.fetchall()
 
+    if rows:
+        st.table(rows)
+    else:
+        st.info("No predictions yet.")
+
+# ===============================
+# ADMIN ANALYTICS
+# ===============================
 if page == "Analytics":
+
     if st.session_state.role != "admin":
-        st.error("Admin access only")
+        st.error("Admin access only.")
     else:
         st.title("📈 Admin Dashboard")
-        h = pd.read_csv("history.csv")
-        st.write("Overall Prediction Records")
-        st.dataframe(h)
-        st.divider()
-        st.write("Most Predicted Fish Count")
-        st.bar_chart(h["fish"].value_counts())
 
-# ===== DOWNLOAD REPORT =====
+        c.execute("SELECT fish FROM history")
+        data = c.fetchall()
 
-if page == "Download Report":
-    st.title("📄 Download Your Report")
-    h = pd.read_csv("history.csv")
-    user_hist = h[h.username == st.session_state.user]
-    st.dataframe(user_hist)
+        if data:
+            fish_list = [d[0] for d in data]
+            st.bar_chart({f: fish_list.count(f) for f in set(fish_list)})
+        else:
+            st.info("No data available.")
 
-    if st.button("Download PDF Report"):
-        import pandas as pd
-        from fpdf import FPDF
-
-        pdf = FPDF()
-        pdf.add_page()
-        pdf.set_font("Arial", size=12)
-        pdf.cell(200, 10, txt="Fish Prediction Report", ln=True)
-
-        for i,row in user_hist.iterrows():
-            pdf.cell(200, 7, txt=f"{row.username} | {row.fish} | {row.confidence:.2f}% | {row.time}", ln=True)
-
-        pdf.output("report.pdf")
-        st.success("Report generated!")
-        st.markdown("[Download PDF](report.pdf)")
-
-# ===== MODEL INFO =====
-
+# ===============================
+# MODEL INFO
+# ===============================
 if page == "Model Info":
     st.title("📌 Model Information")
-    st.write("- Model: EfficientNetV2 trained on 583 images")
-    st.write("- Classes: 21 Fish Species")
-    st.write("- Image Size: 224×224")
-    st.write("- Confidence Threshold: 60%")
+    st.write("Architecture: EfficientNetV2")
+    st.write("Classes: 21")
+    st.write("Image Size: 224x224")
+    st.write("Confidence Threshold: 60%")
+    st.write("Deployment: Streamlit Cloud / HuggingFace")
