@@ -3,5 +3,4 @@ tensorflow
 numpy
 pillow
 requests
-pandas
-fpdf
+sqlite3
