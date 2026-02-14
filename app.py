@@ -95,7 +95,7 @@ st.sidebar.write(f"👤 Logged in as: **{st.session_state.user}**")
 if st.sidebar.button("Logout"):
     st.session_state.logged_in = False
     st.session_state.role = None
-    st.experimental_rerun()
+    st.rerun()
 
 page = st.sidebar.selectbox("Navigate", ["Predict","History","Analytics","Download Report","Model Info"])
 
