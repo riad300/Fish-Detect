@@ -17,7 +17,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# ================= BACKGROUND =================
+# ================= BACKGROUND IMAGE =================
 def get_base64(path):
     with open(path, "rb") as f:
         return base64.b64encode(f.read()).decode()
@@ -29,7 +29,7 @@ st.markdown(f"""
 .stApp {{
     background:
     linear-gradient(rgba(0,0,0,0.75), rgba(0,0,0,0.85)),
-    url("data:image/jpg;base64,{bg_image}");
+    url("data:image/png;base64,{bg_image}");
     background-size: cover;
     background-position: center;
     background-attachment: fixed;
@@ -86,9 +86,8 @@ def load_model():
 
 model = load_model()
 
-# ================= CLASS NAMES =================
 class_names = [
-    "Baim","Bata","Batasio (Tenra)","Chitul","Croaker (Poya)",
+    "Baim","Bata","Batasio","Chitul","Croaker",
     "Hilsha","Kajoli","Meni","Pabda","Poli",
     "Puti","Rita","Rui","Rupchada","Silver Carp",
     "Telapiya","Carp","Kaikka","Koi","Koral","Shrimp"
@@ -148,7 +147,7 @@ if not st.session_state.user:
     st.markdown("""
     <div class='hero'>
         <h1>🐟 FishVision Pro</h1>
-        <p>Next-Gen AI Fish Classification SaaS Platform</p>
+        <p>Enterprise AI Fish Classification Platform</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -185,58 +184,59 @@ if st.sidebar.button("Logout"):
     st.session_state.clear()
     st.rerun()
 
-page = st.sidebar.radio("Navigation",
-                        ["📊 Dashboard","🐟 Predict","📜 History","📈 Analytics","ℹ Model Info"])
+menu = ["🏠 Dashboard","🔍 Predict","📊 History"]
+
+if st.session_state.role=="admin":
+    menu.append("🛠 Admin Panel")
+
+menu.append("ℹ Model Info")
+
+page = st.sidebar.radio("Navigation",menu)
 
 # ================= DASHBOARD =================
-if page=="📊 Dashboard":
+if page=="🏠 Dashboard":
 
-    st.markdown("<div class='hero'><h1>Platform Overview</h1></div>", unsafe_allow_html=True)
+    st.markdown("<div class='hero'><h2>Personal Overview</h2></div>", unsafe_allow_html=True)
 
-    c.execute("SELECT fish,confidence,time FROM history WHERE username=?",
+    c.execute("SELECT fish,confidence FROM history WHERE username=?",
               (st.session_state.user,))
-    rows = c.fetchall()
+    rows=c.fetchall()
 
     if rows:
-        df = pd.DataFrame(rows,columns=["Fish","Confidence","Time"])
-
-        col1,col2,col3 = st.columns(3)
-        col1.metric("Total Predictions", len(df))
-        col2.metric("Average Confidence", f"{round(df['Confidence'].mean(),2)}%")
-        col3.metric("Most Predicted Fish", df["Fish"].value_counts().idxmax())
-
+        df=pd.DataFrame(rows,columns=["Fish","Confidence"])
+        col1,col2,col3=st.columns(3)
+        col1.metric("Total Predictions",len(df))
+        col2.metric("Average Confidence",f"{df['Confidence'].mean():.2f}%")
+        col3.metric("Unique Fish",df["Fish"].nunique())
         st.bar_chart(df["Fish"].value_counts())
-
     else:
-        st.info("No activity yet.")
+        st.info("No predictions yet.")
 
 # ================= PREDICT =================
-if page=="🐟 Predict":
+if page=="🔍 Predict":
 
-    st.markdown("<div class='hero'><h2>AI Fish Detection Engine</h2></div>", unsafe_allow_html=True)
+    st.markdown("<div class='hero'><h2>AI Detection Engine</h2></div>", unsafe_allow_html=True)
 
-    file = st.file_uploader("Upload Fish Image", type=["jpg","png","jpeg"])
+    file = st.file_uploader("Upload Image", type=["jpg","png","jpeg"])
 
     if file:
         img = Image.open(file).convert("RGB")
         st.image(img, use_container_width=True)
 
-        with st.spinner("🔍 AI is analyzing..."):
-            img_resized = img.resize((224,224))
-            arr = np.expand_dims(np.array(img_resized),0)
-            arr = tf.keras.applications.efficientnet_v2.preprocess_input(arr)
+        img = img.resize((224,224))
+        arr = np.expand_dims(np.array(img),0)
+        arr = tf.keras.applications.efficientnet_v2.preprocess_input(arr)
 
-            pred = model.predict(arr)[0]
-            idx = np.argmax(pred)
-            confidence = float(pred[idx]*100)
-            fish = class_names[idx]
+        pred = model.predict(arr)[0]
+        idx = np.argmax(pred)
 
-        color = "#00ff99" if confidence>70 else "#ffaa00" if confidence>40 else "#ff4d4d"
+        fish = class_names[idx]
+        confidence = float(pred[idx]*100)
 
         st.markdown(f"""
         <div class='glass'>
-            <h1 style='text-align:center;color:{color};'>{fish}</h1>
-            <p style='text-align:center;'>Confidence: {confidence:.2f}%</p>
+            <h1>{fish}</h1>
+            <p>Confidence: {confidence:.2f}%</p>
         </div>
         """, unsafe_allow_html=True)
 
@@ -245,46 +245,43 @@ if page=="🐟 Predict":
         if confidence>60:
             save_history(st.session_state.user,fish,confidence)
 
+        report=f"""FishVision Report
+User: {st.session_state.user}
+Prediction: {fish}
+Confidence: {confidence:.2f}%
+Time: {datetime.now()}
+"""
+        st.download_button("⬇ Download Report",report,"prediction.txt")
+
 # ================= HISTORY =================
-if page=="📜 History":
-
-    st.markdown("<div class='hero'><h2>Your Prediction History</h2></div>", unsafe_allow_html=True)
-
-    c.execute("SELECT fish,confidence,time FROM history WHERE username=?",
-              (st.session_state.user,))
-    rows=c.fetchall()
-
-    if rows:
-        df=pd.DataFrame(rows,columns=["Fish","Confidence","Time"])
-        st.bar_chart(df["Fish"].value_counts())
-        st.dataframe(df,use_container_width=True)
-        csv=df.to_csv(index=False).encode()
-        st.download_button("⬇ Download CSV",csv,"history.csv","text/csv")
-    else:
-        st.info("No predictions yet.")
+if page=="📊 History":
+    df=pd.read_sql_query(f"SELECT * FROM history WHERE username='{st.session_state.user}'",conn)
+    st.dataframe(df,use_container_width=True)
 
 # ================= ADMIN =================
-if page=="📈 Analytics":
+if page=="🛠 Admin Panel":
 
-    if st.session_state.role!="admin":
-        st.error("Admin Only")
-    else:
-        st.title("Platform Analytics")
-        c.execute("SELECT fish FROM history")
-        data=c.fetchall()
-        if data:
-            fish=[d[0] for d in data]
-            chart_data={f:fish.count(f) for f in set(fish)}
-            st.bar_chart(chart_data)
-        else:
-            st.info("No Data")
+    st.title("Enterprise Admin Panel")
+
+    total_users=pd.read_sql_query("SELECT COUNT(*) as c FROM users",conn)["c"][0]
+    total_predictions=pd.read_sql_query("SELECT COUNT(*) as c FROM history",conn)["c"][0]
+
+    col1,col2=st.columns(2)
+    col1.metric("Total Users",total_users)
+    col2.metric("Total Predictions",total_predictions)
+
+    st.subheader("All Users")
+    users=pd.read_sql_query("SELECT * FROM users",conn)
+    st.dataframe(users,use_container_width=True)
 
 # ================= MODEL INFO =================
 if page=="ℹ Model Info":
+
     st.title("Model Overview")
     st.write("Architecture: EfficientNetV2")
     st.write("Total Classes: 21")
     st.write("Image Size: 224x224")
     st.write("Confidence Threshold: 60%")
+    st.write("Deployment: Streamlit Cloud / HuggingFace")
 
-st.markdown("<hr><center>© 2026 FishVision AI | Premium SaaS Edition</center>", unsafe_allow_html=True)
+st.markdown("<hr><center style='color:white;'>© 2026 FishVision AI | Enterprise SaaS</center>", unsafe_allow_html=True)
