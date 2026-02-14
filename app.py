@@ -8,6 +8,7 @@ from PIL import Image
 from datetime import datetime
 import requests
 import pandas as pd
+import base64
 
 # ================= PAGE CONFIG =================
 st.set_page_config(
@@ -16,79 +17,59 @@ st.set_page_config(
     layout="wide"
 )
 
-# ================= PREMIUM UI =================
-st.markdown("""
+# ================= BACKGROUND IMAGE =================
+def get_base64(path):
+    with open(path, "rb") as f:
+        return base64.b64encode(f.read()).decode()
+
+bg_image = get_base64("assets/fish_bg.png")
+
+st.markdown(f"""
 <style>
-
-/* Animated Gradient */
-.stApp {
-    background: linear-gradient(-45deg, #0f2027, #203a43, #2c5364, #1c1c1c);
-    background-size: 400% 400%;
-    animation: gradientBG 15s ease infinite;
+.stApp {{
+    background:
+    linear-gradient(rgba(0,0,0,0.75), rgba(0,0,0,0.85)),
+    url("data:image/jpg;base64,{bg_image}");
+    background-size: cover;
+    background-position: center;
+    background-attachment: fixed;
     color: white;
-}
-@keyframes gradientBG {
-    0% {background-position: 0% 50%;}
-    50% {background-position: 100% 50%;}
-    100% {background-position: 0% 50%;}
-}
+}}
 
-/* Glass Card */
-.glass {
+.hero {{
     background: rgba(255,255,255,0.08);
-    padding: 30px;
-    border-radius: 20px;
+    padding: 40px;
+    border-radius: 25px;
     backdrop-filter: blur(20px);
-    box-shadow: 0 0 40px rgba(0,255,255,0.15);
-    transition: 0.3s;
-}
-.glass:hover {
-    transform: translateY(-5px);
-    box-shadow: 0 0 60px rgba(0,255,255,0.35);
-}
+    box-shadow: 0 0 60px rgba(0,255,255,0.25);
+    text-align:center;
+    margin-bottom: 30px;
+}}
 
-/* Buttons */
-.stButton>button {
+.glass {{
+    background: rgba(255,255,255,0.07);
+    padding: 25px;
+    border-radius: 20px;
+    backdrop-filter: blur(18px);
+    box-shadow: 0 0 40px rgba(0,255,255,0.15);
+    margin-bottom: 20px;
+}}
+
+.stButton>button {{
     background: linear-gradient(90deg,#00c6ff,#0072ff);
     border-radius: 30px;
-    border: none;
-    color: white;
-    font-weight: bold;
-    padding: 0.6rem 1.5rem;
-}
-.stButton>button:hover {
-    box-shadow: 0 0 20px #00c6ff;
-    transform: scale(1.05);
-}
+    border:none;
+    color:white;
+    font-weight:bold;
+    padding:0.6rem 2rem;
+}}
 
-/* Sidebar */
-section[data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #141E30, #243B55);
-}
+section[data-testid="stSidebar"] {{
+    background: linear-gradient(180deg,#0f2027,#203a43);
+}}
 
-/* Metric Glow */
-[data-testid="stMetric"] {
-    background: rgba(255,255,255,0.05);
-    padding: 15px;
-    border-radius: 15px;
-    box-shadow: 0 0 20px rgba(0,255,255,0.15);
-}
-
-/* Watermark */
-.watermark {
-    position: fixed;
-    bottom: 10px;
-    right: 20px;
-    opacity: 0.08;
-    font-size: 60px;
-    font-weight: 800;
-}
-
-footer {visibility:hidden;}
-
+footer {{visibility:hidden;}}
 </style>
-
-<div class="watermark">FishVision AI</div>
 """, unsafe_allow_html=True)
 
 # ================= MODEL =================
@@ -105,7 +86,7 @@ def load_model():
 
 model = load_model()
 
-# ===== ORIGINAL 21 CLASS =====
+# ================= CLASS NAMES =================
 class_names = [
     "Baim","Bata","Batasio (Tenra)","Chitul","Croaker (Poya)",
     "Hilsha","Kajoli","Meni","Pabda","Poli",
@@ -164,7 +145,12 @@ if "role" not in st.session_state:
 # ================= LOGIN =================
 if not st.session_state.user:
 
-    st.markdown("<div class='glass'><h1 style='text-align:center;'>🐟 FishVision Pro</h1><p style='text-align:center;'>AI Powered Fish Classification SaaS</p></div>", unsafe_allow_html=True)
+    st.markdown("""
+    <div class='hero'>
+        <h1>🐟 FishVision Pro</h1>
+        <p>AI Powered Fish Classification SaaS Platform</p>
+    </div>
+    """, unsafe_allow_html=True)
 
     tab1, tab2 = st.tabs(["🔐 Login","📝 Signup"])
 
@@ -206,7 +192,7 @@ page = st.sidebar.radio("Navigation",
 # ================= PREDICT =================
 if page=="🏠 Predict":
 
-    st.title("AI Fish Species Detection")
+    st.markdown("<div class='hero'><h2>AI Fish Detection Engine</h2></div>", unsafe_allow_html=True)
 
     file = st.file_uploader("Upload Image", type=["jpg","png","jpeg"])
 
@@ -218,28 +204,43 @@ if page=="🏠 Predict":
         arr = np.expand_dims(np.array(img),0)
         arr = tf.keras.applications.efficientnet_v2.preprocess_input(arr)
 
-        pred = model.predict(arr)
-        idx = np.argmax(pred)
-        confidence = float(pred[0][idx]*100)
-        fish = class_names[idx]
+        pred = model.predict(arr)[0]
+        top3 = pred.argsort()[-3:][::-1]
 
-        st.progress(int(confidence))
+        st.subheader("🔎 Top 3 Predictions")
 
-        if confidence < 60:
-            st.warning("Low confidence. Try clearer image.")
-        else:
+        for i in top3:
+            fish = class_names[i]
+            confidence = float(pred[i]*100)
+
             st.markdown(f"""
             <div class='glass'>
-                <h1 style='text-align:center;font-size:40px;'>{fish}</h1>
-                <p style='text-align:center;font-size:22px;'>Confidence: {confidence:.2f}%</p>
+                <h2>{fish}</h2>
+                <p>Confidence: {confidence:.2f}%</p>
             </div>
             """, unsafe_allow_html=True)
-            save_history(st.session_state.user,fish,confidence)
+
+            st.progress(int(confidence))
+
+        best_fish = class_names[top3[0]]
+        best_conf = float(pred[top3[0]]*100)
+
+        if best_conf > 60:
+            save_history(st.session_state.user,best_fish,best_conf)
+
+        report = f"""
+FishVision AI Report
+User: {st.session_state.user}
+Prediction: {best_fish}
+Confidence: {best_conf:.2f}%
+Time: {datetime.now()}
+"""
+        st.download_button("⬇ Download Report",report,"prediction.txt")
 
 # ================= HISTORY =================
 if page=="📊 History":
 
-    st.title("📊 Personal Dashboard")
+    st.markdown("<div class='hero'><h2>Personal Dashboard</h2></div>", unsafe_allow_html=True)
 
     c.execute("SELECT fish,confidence,time FROM history WHERE username=?",
               (st.session_state.user,))
@@ -254,7 +255,7 @@ if page=="📊 History":
                     f"{round(df['Confidence'].mean(),2)}%")
         col3.metric("Unique Fish",df["Fish"].nunique())
 
-        st.divider()
+        st.bar_chart(df["Fish"].value_counts())
         st.dataframe(df,use_container_width=True)
 
         csv=df.to_csv(index=False).encode()
@@ -263,23 +264,21 @@ if page=="📊 History":
     else:
         st.info("No predictions yet.")
 
-# ================= ADMIN ANALYTICS =================
+# ================= ADMIN =================
 if page=="📈 Analytics":
 
     if st.session_state.role!="admin":
-        st.error("Admin Only Access")
+        st.error("Admin Only")
     else:
-        st.title("📈 Platform Analytics")
-
+        st.title("Platform Analytics")
         c.execute("SELECT fish FROM history")
         data=c.fetchall()
-
         if data:
             fish=[d[0] for d in data]
             chart_data={f:fish.count(f) for f in set(fish)}
             st.bar_chart(chart_data)
         else:
-            st.info("No Data Available")
+            st.info("No Data")
 
 # ================= MODEL INFO =================
 if page=="ℹ Model Info":
