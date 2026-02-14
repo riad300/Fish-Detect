@@ -17,7 +17,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# ================= BACKGROUND IMAGE =================
+# ================= BACKGROUND =================
 def get_base64(path):
     with open(path, "rb") as f:
         return base64.b64encode(f.read()).decode()
@@ -148,7 +148,7 @@ if not st.session_state.user:
     st.markdown("""
     <div class='hero'>
         <h1>🐟 FishVision Pro</h1>
-        <p>AI Powered Fish Classification SaaS Platform</p>
+        <p>Next-Gen AI Fish Classification SaaS Platform</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -162,7 +162,6 @@ if not st.session_state.user:
             if user:
                 st.session_state.user=u
                 st.session_state.role=user[2]
-                st.success("Welcome Back 🚀")
                 st.rerun()
             else:
                 st.error("Invalid Credentials")
@@ -187,60 +186,69 @@ if st.sidebar.button("Logout"):
     st.rerun()
 
 page = st.sidebar.radio("Navigation",
-                        ["🏠 Predict","📊 History","📈 Analytics","ℹ Model Info"])
+                        ["📊 Dashboard","🐟 Predict","📜 History","📈 Analytics","ℹ Model Info"])
+
+# ================= DASHBOARD =================
+if page=="📊 Dashboard":
+
+    st.markdown("<div class='hero'><h1>Platform Overview</h1></div>", unsafe_allow_html=True)
+
+    c.execute("SELECT fish,confidence,time FROM history WHERE username=?",
+              (st.session_state.user,))
+    rows = c.fetchall()
+
+    if rows:
+        df = pd.DataFrame(rows,columns=["Fish","Confidence","Time"])
+
+        col1,col2,col3 = st.columns(3)
+        col1.metric("Total Predictions", len(df))
+        col2.metric("Average Confidence", f"{round(df['Confidence'].mean(),2)}%")
+        col3.metric("Most Predicted Fish", df["Fish"].value_counts().idxmax())
+
+        st.bar_chart(df["Fish"].value_counts())
+
+    else:
+        st.info("No activity yet.")
 
 # ================= PREDICT =================
-if page=="🏠 Predict":
+if page=="🐟 Predict":
 
     st.markdown("<div class='hero'><h2>AI Fish Detection Engine</h2></div>", unsafe_allow_html=True)
 
-    file = st.file_uploader("Upload Image", type=["jpg","png","jpeg"])
+    file = st.file_uploader("Upload Fish Image", type=["jpg","png","jpeg"])
 
     if file:
         img = Image.open(file).convert("RGB")
         st.image(img, use_container_width=True)
 
-        img = img.resize((224,224))
-        arr = np.expand_dims(np.array(img),0)
-        arr = tf.keras.applications.efficientnet_v2.preprocess_input(arr)
+        with st.spinner("🔍 AI is analyzing..."):
+            img_resized = img.resize((224,224))
+            arr = np.expand_dims(np.array(img_resized),0)
+            arr = tf.keras.applications.efficientnet_v2.preprocess_input(arr)
 
-        pred = model.predict(arr)[0]
-        top3 = pred.argsort()[-3:][::-1]
+            pred = model.predict(arr)[0]
+            idx = np.argmax(pred)
+            confidence = float(pred[idx]*100)
+            fish = class_names[idx]
 
-        st.subheader("🔎 Top 3 Predictions")
+        color = "#00ff99" if confidence>70 else "#ffaa00" if confidence>40 else "#ff4d4d"
 
-        for i in top3:
-            fish = class_names[i]
-            confidence = float(pred[i]*100)
+        st.markdown(f"""
+        <div class='glass'>
+            <h1 style='text-align:center;color:{color};'>{fish}</h1>
+            <p style='text-align:center;'>Confidence: {confidence:.2f}%</p>
+        </div>
+        """, unsafe_allow_html=True)
 
-            st.markdown(f"""
-            <div class='glass'>
-                <h2>{fish}</h2>
-                <p>Confidence: {confidence:.2f}%</p>
-            </div>
-            """, unsafe_allow_html=True)
+        st.progress(int(confidence))
 
-            st.progress(int(confidence))
-
-        best_fish = class_names[top3[0]]
-        best_conf = float(pred[top3[0]]*100)
-
-        if best_conf > 60:
-            save_history(st.session_state.user,best_fish,best_conf)
-
-        report = f"""
-FishVision AI Report
-User: {st.session_state.user}
-Prediction: {best_fish}
-Confidence: {best_conf:.2f}%
-Time: {datetime.now()}
-"""
-        st.download_button("⬇ Download Report",report,"prediction.txt")
+        if confidence>60:
+            save_history(st.session_state.user,fish,confidence)
 
 # ================= HISTORY =================
-if page=="📊 History":
+if page=="📜 History":
 
-    st.markdown("<div class='hero'><h2>Personal Dashboard</h2></div>", unsafe_allow_html=True)
+    st.markdown("<div class='hero'><h2>Your Prediction History</h2></div>", unsafe_allow_html=True)
 
     c.execute("SELECT fish,confidence,time FROM history WHERE username=?",
               (st.session_state.user,))
@@ -248,19 +256,10 @@ if page=="📊 History":
 
     if rows:
         df=pd.DataFrame(rows,columns=["Fish","Confidence","Time"])
-
-        col1,col2,col3=st.columns(3)
-        col1.metric("Total Predictions",len(df))
-        col2.metric("Average Confidence",
-                    f"{round(df['Confidence'].mean(),2)}%")
-        col3.metric("Unique Fish",df["Fish"].nunique())
-
         st.bar_chart(df["Fish"].value_counts())
         st.dataframe(df,use_container_width=True)
-
         csv=df.to_csv(index=False).encode()
         st.download_button("⬇ Download CSV",csv,"history.csv","text/csv")
-
     else:
         st.info("No predictions yet.")
 
@@ -282,12 +281,10 @@ if page=="📈 Analytics":
 
 # ================= MODEL INFO =================
 if page=="ℹ Model Info":
-
     st.title("Model Overview")
     st.write("Architecture: EfficientNetV2")
     st.write("Total Classes: 21")
     st.write("Image Size: 224x224")
     st.write("Confidence Threshold: 60%")
-    st.write("Deployment: Streamlit Cloud / HuggingFace")
 
-st.markdown("<hr><center style='color:white;'>© 2026 FishVision AI | Premium SaaS Edition</center>", unsafe_allow_html=True)
+st.markdown("<hr><center>© 2026 FishVision AI | Premium SaaS Edition</center>", unsafe_allow_html=True)
